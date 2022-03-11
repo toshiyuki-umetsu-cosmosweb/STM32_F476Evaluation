@@ -17,7 +17,6 @@
  */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
-#include <htu21d.h>
 #include "main.h"
 #include "i2c.h"
 #include "usart.h"
