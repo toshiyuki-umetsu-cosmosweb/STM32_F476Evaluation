@@ -70,6 +70,11 @@ static bool IsProcessRequested;
  * Process Number.
  */
 static int32_t ProcessNo;
+
+/**
+ * PWM Rate
+ */
+static uint32_t PwmRate;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -81,7 +86,6 @@ static bool hal_uart_transmit_it_proc(void);
 static bool htu21d_measure_temperature_proc(void);
 static bool htu21d_measure_humidity_proc(void);
 static void send_measure_data_proc(void);
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
 static void print_tim_intr_cause(const char *name, TIM_HandleTypeDef *htim);
 
 /* USER CODE END PFP */
@@ -103,6 +107,7 @@ int main(void)
 	Humidity = 0.0f;
 	IsProcessRequested = false;
 	ProcessNo = 0L;
+	PwmRate = 50u;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -126,6 +131,7 @@ int main(void)
   MX_USART2_UART_Init();
   MX_I2C1_Init();
   MX_TIM1_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
   htu21d_init();
 
@@ -134,8 +140,12 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
-    HAL_TIM_Base_Start_IT(&htim1); // Start TIM3 Interrupt.
+    HAL_TIM_Base_Start_IT(&htim1); // Start TIM3.
+    HAL_TIM_PWM_Start_IT(&htim1, TIM_CHANNEL_1);
+    HAL_TIM_OC_Start_IT(&htim1, TIM_CHANNEL_2);
 
+    HAL_TIM_Base_Start_IT(&htim2); // Start TIM2.
+    HAL_TIM_PWM_Start_IT(&htim2, TIM_CHANNEL_3);
 
 	while (1) {
     /* USER CODE END WHILE */
@@ -246,6 +256,37 @@ execute_process(void)
 	if (op_msg != NULL) {
 		dprintf("%s %lu msec\n", op_msg, elapse);
 	}
+
+}
+
+/**
+ * Update PWM rate.
+ */
+void
+update_pwm_rate(void)
+{
+	PwmRate += 5u;
+	if (PwmRate > 100u) {
+		PwmRate = 0u;
+	}
+
+	uint32_t period = htim2.Instance->ARR + 1u;
+	if (PwmRate >= 100u) {
+		uint32_t tim3_or1 = htim2.Instance->OR1 & ~0x3u;
+		htim2.Instance->OR1 = tim3_or1 | 0x01u; // Connect to COMP1_OUT
+		htim2.Instance->CCR3 = period; //
+	} else if (PwmRate == 0u) {
+		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_10, GPIO_PIN_RESET);
+		uint32_t tim3_or1 = htim2.Instance->OR1 & ~0x3u;
+		htim2.Instance->OR1 = tim3_or1 | 0x00u; // Connect to I/O
+		htim2.Instance->CCR3 = 0u;
+	} else {
+		uint32_t tim3_or1 = htim2.Instance->OR1 & ~0x3u;
+		htim2.Instance->OR1 = tim3_or1 | 0x01u; // Connect to COMP1_OUT
+	    htim2.Instance->CCR3 = ((period * PwmRate) / 100u) - 1u;
+	}
+
+	return ;
 }
 
 
@@ -332,11 +373,38 @@ HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 	if (htim == &htim1) {
 		// TIM1 Interrupt.
-		print_tim_intr_cause("TIM1", htim);
+		print_tim_intr_cause("TIM1_PeriodElapsed", htim);
 
-		IsProcessRequested = true;
+		if (TIM_GET_ITSTATUS(htim, TIM_IT_UPDATE)) {
+            IsProcessRequested = true;
+		}
 	}
 }
+
+/**
+ * Timer Output Compare callback
+ */
+void
+HAL_TIM_OC_DelayElapsedCallback(TIM_HandleTypeDef *htim)
+{
+	if (htim == &htim1) {
+		// TIM1 Interrupt.
+		print_tim_intr_cause("TIM1_OC_DelayElapsed", htim);
+	}
+}
+
+/**
+ *
+ */
+void
+HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
+{
+	if (htim == &htim1) {
+		// TIM1 Interrupt.
+		print_tim_intr_cause("TIM1_PWM_PulseFinished", htim);
+	}
+}
+
 /**
  * Print TIMx interrupt cause.
  *

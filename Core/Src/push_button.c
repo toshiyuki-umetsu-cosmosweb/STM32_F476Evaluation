@@ -6,6 +6,7 @@
  */
 #include "gpio.h"
 #include "led.h"
+#include "main.h"
 #include "push_button.h"
 
 /**
@@ -17,5 +18,6 @@ HAL_GPIO_EXTI_Callback(uint16_t pin)
 {
 	if (pin == GPIO_PIN_13) {
 		led_toggle(USER_LED_1);
+		update_pwm_rate();
 	}
 }

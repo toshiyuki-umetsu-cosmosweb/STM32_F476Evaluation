@@ -89,15 +89,25 @@ huartX.gState == HAL_UART_STATE_READY
 それから「Counter Period」を(5000-1)にすれば、500ミリ毎にアップデートイベントが発生する。
 「auto-reloadpreload」をEnableにしておくと、手動でカウンタをリセットしなくても、アップデートイベント時にリセットしてくれる。
 通知はNVICで「update/global」割り込みを有効に設定し、「void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)」を実装する。
+また、HAL_TIM_Base_Start_IT(&htimX)を呼び出し、割り込み通知を許可する。
 
+### 用途例：アウトプットコンペア
 
+カウンタがxxxになったときに割り込みを入れて何らかの処理をする場合など。
+通常の周期タイマーの設定をする。
+その上で、「TIMx」の「ChannelX」に「Output Compare No Output」を設定する。
+Modeを「Active Level on matach」などに設定し、Pulseを所定のカウンタ値に設定する。
+また、HAL_TIM_OC_Start_IT(&htimX, TIM_CHANNEL_X)を呼び出し、アウトプットコンペア割り込みを許可する。
 
+### 用途例：PWM出力
 
-
-
-
-
-
- 
-
+PWM信号を出力する場合など。
+通常の周期タイマーの設定をする。
+その上で、「TIMx」の「ChannelX」に「PWM Generation CHx」を設定する。
+「PWM Generation CHx」にて、「Pulse」幅（周期からDuty比で計算）を設定する。
+他のマイコンでもあったように、Duty比0％、Duty比100%を設定するには特別な処理が必要。
+Duty比100％ -> CCRx レジスタの値を ARR + 1 に設定することで、PWMパルス信号のL/Hが切り替わらないようにする。
+Duty比0％ -> OPxレジスタを操作し、I/Oレジスタの出力にする。（L固定 or H固定）
+いずれにせよ、PWM周期が崩れる点には注意が必要。
+Duty比を指定してCCRxレジスタを書き替えてくれるHAL層のインタフェースは無いようだ。
 
