@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "i2c.h"
+#include "tim.h"
 #include "usart.h"
 #include "gpio.h"
 
@@ -27,6 +28,8 @@
 #include <string.h>
 #include "usart.h"
 #include "led.h"
+#include "htu21d.h"
+#include "debug.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -91,6 +94,7 @@ int main(void)
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   MX_I2C1_Init();
+  MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
   htu21d_init();
 
@@ -98,6 +102,9 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+    // TIM1の割り込み開�?
+    HAL_TIM_Base_Start_IT(&htim1);
+
 	while (1) {
     /* USER CODE END WHILE */
 
@@ -108,8 +115,8 @@ int main(void)
 
 		float temp;
         htu21d_measure_temperature(&temp);
-
 		uint32_t elapse = HAL_GetTick() - begin;
+		dprintf("%lu msec\n", elapse);
 		if (elapse < 500u) {
 			HAL_Delay(500u - elapse);
 		}
