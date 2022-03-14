@@ -110,7 +110,7 @@ htu21d_measure_temperature(float *temperature)
  * @return 成功した場合にはtrue, それ以外はfalse.
  */
 bool
-mtu21d_measure_humidity(float *humidifier)
+htu21d_measure_humidity(float *humidifier)
 {
 	HAL_StatusTypeDef status;
 	uint16_t addr;

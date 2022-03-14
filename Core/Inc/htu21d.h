@@ -17,6 +17,7 @@ extern "C" {
 void htu21d_init(void);
 void htu21d_destroy(void);
 bool htu21d_measure_temperature(float *temperature);
+bool htu21d_measure_humidity(float *humidifier);
 
 #ifdef __cplusplus
 }

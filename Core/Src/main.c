@@ -49,18 +49,33 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+/**
+ * Variable to store temperature.
+ */
+static float Temperature;
+/**
+ * Variable to store Humifier
+ */
+static float Humidity;
+/**
+ * Test message for test.
+ */
+static const uint8_t TestMessage[32u] = "This is test message.\n";
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
-
+static void hal_uart_transmit_proc(void);
+static bool hal_uart_transmit_it_proc(void);
+static bool htu21d_measure_temperature_proc(void);
+static bool htu21d_measure_humidity_proc(void);
+static void send_measure_data_proc(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-static const char *UartMsg = "hello world.";
+
 
 /* USER CODE END 0 */
 
@@ -71,7 +86,8 @@ static const char *UartMsg = "hello world.";
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-
+	Temperature = 0.0f;
+	Humidity = 0.0f;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -102,21 +118,54 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-    // TIM1の割り込み開�?
-    HAL_TIM_Base_Start_IT(&htim1);
+
+    HAL_TIM_Base_Start_IT(&htim1); // Start TIM3 Interrupt.
+
+    uint32_t cycle = 0u;
+    const char *op_msg = NULL;
 
 	while (1) {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
 		uint32_t begin = HAL_GetTick();
+		switch (cycle) {
+			case 0u:
+				hal_uart_transmit_proc();
+                op_msg = "HAL_UART_Transmit";
+                cycle++;
+                break;
+			case 1u:
+				if (hal_uart_transmit_it_proc()) {
+					op_msg = "HAL_UART_Transmit_IT";
+					cycle++;
+				} else {
+					op_msg = NULL;
+				}
+				break;
+			case 0x02u:
+				if (htu21d_measure_temperature_proc()) {
+					op_msg = "htu21d_measure_temperature";
+				}
+				cycle++;
+				break;
+			case 0x03u:
+				if (htu21d_measure_humidity_proc()) {
+					op_msg = "htu21d_measure_humidity";
+				}
+				cycle++;
+				break;
+			default:
+				send_measure_data_proc();
+				cycle = 0u;
+				op_msg = NULL;
+				break;
+		}
 
-		HAL_UART_Transmit(&huart2, (const uint8_t*)(UartMsg), strlen(UartMsg), 500u);
-
-		float temp;
-        htu21d_measure_temperature(&temp);
 		uint32_t elapse = HAL_GetTick() - begin;
-		dprintf("%lu msec\n", elapse);
+		if (op_msg != NULL) {
+		    dprintf("%s %lu msec\n", op_msg, elapse);
+		}
 		if (elapse < 500u) {
 			HAL_Delay(500u - elapse);
 		}
@@ -176,6 +225,63 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
+/**
+ * Send serial data with using HAL_UART_Transmit() function.
+ */
+static void
+hal_uart_transmit_proc(void)
+{
+    if (HAL_UART_Transmit(&huart2, TestMessage, sizeof(TestMessage), 32u) != HAL_OK) {
+    	// Ignore error.
+    }
+}
+/**
+ * Send serial data with using HAL_UART_Transmit_IT() function.
+ */
+static bool
+hal_uart_transmit_it_proc(void)
+{
+	bool is_succeed = false;
+
+	if (huart2.gState == HAL_UART_STATE_READY) {
+	    if (HAL_UART_Transmit_IT(&huart2, TestMessage, sizeof(TestMessage)) == HAL_OK) {
+	    	is_succeed = true;
+	    }
+	}
+
+	return is_succeed;
+}
+static bool
+htu21d_measure_temperature_proc(void)
+{
+	return htu21d_measure_temperature(&Temperature);
+}
+
+static bool
+htu21d_measure_humidity_proc(void)
+{
+	return htu21d_measure_humidity(&Humidity);
+}
+
+static char MsgBuf[256u];
+
+static void
+send_measure_data_proc(void)
+{
+	int16_t temp_n = (int16_t)(Temperature);
+	int16_t temp_d = (int16_t)((Temperature - temp_n) * 100.0f);
+	int16_t humi_n = (int16_t)(Humidity);
+	int16_t humi_d = (int16_t)((Humidity - humi_n) * 100.0f);
+	snprintf(MsgBuf, sizeof(MsgBuf),
+			"Temp=%d.%d Humi=%d.%d\n", temp_n, temp_d, humi_n, humi_d);
+
+	size_t len = strlen(MsgBuf);
+	if (huart2.gState == HAL_UART_STATE_READY) {
+	    if (HAL_UART_Transmit_IT(&huart2, (uint8_t*)(MsgBuf), len) == HAL_OK) {
+	    	// Ignore error.
+	    }
+	}
+}
 
 /* USER CODE END 4 */
 
