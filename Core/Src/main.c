@@ -61,16 +61,29 @@ static float Humidity;
  * Test message for test.
  */
 static const uint8_t TestMessage[32u] = "This is test message.\n";
+/**
+ * Request flag to execute any process.
+ */
+static bool IsProcessRequested;
+
+/**
+ * Process Number.
+ */
+static int32_t ProcessNo;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
+static void execute_process(void);
 static void hal_uart_transmit_proc(void);
 static bool hal_uart_transmit_it_proc(void);
 static bool htu21d_measure_temperature_proc(void);
 static bool htu21d_measure_humidity_proc(void);
 static void send_measure_data_proc(void);
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim);
+static void print_tim_intr_cause(const char *name, TIM_HandleTypeDef *htim);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -88,6 +101,8 @@ int main(void)
   /* USER CODE BEGIN 1 */
 	Temperature = 0.0f;
 	Humidity = 0.0f;
+	IsProcessRequested = false;
+	ProcessNo = 0L;
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -121,55 +136,16 @@ int main(void)
 
     HAL_TIM_Base_Start_IT(&htim1); // Start TIM3 Interrupt.
 
-    uint32_t cycle = 0u;
-    const char *op_msg = NULL;
 
 	while (1) {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-		uint32_t begin = HAL_GetTick();
-		switch (cycle) {
-			case 0u:
-				hal_uart_transmit_proc();
-                op_msg = "HAL_UART_Transmit";
-                cycle++;
-                break;
-			case 1u:
-				if (hal_uart_transmit_it_proc()) {
-					op_msg = "HAL_UART_Transmit_IT";
-					cycle++;
-				} else {
-					op_msg = NULL;
-				}
-				break;
-			case 0x02u:
-				if (htu21d_measure_temperature_proc()) {
-					op_msg = "htu21d_measure_temperature";
-				}
-				cycle++;
-				break;
-			case 0x03u:
-				if (htu21d_measure_humidity_proc()) {
-					op_msg = "htu21d_measure_humidity";
-				}
-				cycle++;
-				break;
-			default:
-				send_measure_data_proc();
-				cycle = 0u;
-				op_msg = NULL;
-				break;
+		if (IsProcessRequested) {
+			execute_process();
+			IsProcessRequested = false;
 		}
-
-		uint32_t elapse = HAL_GetTick() - begin;
-		if (op_msg != NULL) {
-		    dprintf("%s %lu msec\n", op_msg, elapse);
-		}
-		if (elapse < 500u) {
-			HAL_Delay(500u - elapse);
-		}
-
+		// Try wait.
 	}
   /* USER CODE END 3 */
 }
@@ -224,6 +200,54 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+/**
+ * Execute process.
+ */
+static void
+execute_process(void)
+{
+    const char *op_msg = NULL;
+
+	uint32_t begin = HAL_GetTick();
+	switch (ProcessNo) {
+		case 0L:
+			hal_uart_transmit_proc();
+			op_msg = "HAL_UART_Transmit";
+			ProcessNo++;
+			break;
+		case 1L:
+			if (hal_uart_transmit_it_proc()) {
+				op_msg = "HAL_UART_Transmit_IT";
+				ProcessNo++;
+			} else {
+				op_msg = NULL;
+			}
+			break;
+		case 2L:
+			if (htu21d_measure_temperature_proc()) {
+				op_msg = "htu21d_measure_temperature";
+			}
+			ProcessNo++;
+			break;
+		case 3L:
+			if (htu21d_measure_humidity_proc()) {
+				op_msg = "htu21d_measure_humidity";
+			}
+			ProcessNo++;
+			break;
+		default:
+			send_measure_data_proc();
+			ProcessNo = 0u;
+			op_msg = NULL;
+			break;
+	}
+
+	uint32_t elapse = HAL_GetTick() - begin;
+	if (op_msg != NULL) {
+		dprintf("%s %lu msec\n", op_msg, elapse);
+	}
+}
+
 
 /**
  * Send serial data with using HAL_UART_Transmit() function.
@@ -251,20 +275,33 @@ hal_uart_transmit_it_proc(void)
 
 	return is_succeed;
 }
+
+/**
+ * Measurement Temperature proc.
+ */
 static bool
 htu21d_measure_temperature_proc(void)
 {
 	return htu21d_measure_temperature(&Temperature);
 }
 
+/**
+ * Measurement Humiditiy proc.
+ */
 static bool
 htu21d_measure_humidity_proc(void)
 {
 	return htu21d_measure_humidity(&Humidity);
 }
 
+/**
+ * Message buffer which using to transmit measurement data.
+ */
 static char MsgBuf[256u];
 
+/**
+ * Send measurement data via UART.
+ */
 static void
 send_measure_data_proc(void)
 {
@@ -282,6 +319,51 @@ send_measure_data_proc(void)
 	    }
 	}
 }
+
+/**
+ * Timer callback handler.
+ *
+ * @brief  Period elapsed callback in non-blocking mode
+ * @param  htim TIM handle
+ * @retval None
+ */
+void
+HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+	if (htim == &htim1) {
+		// TIM1 Interrupt.
+		print_tim_intr_cause("TIM1", htim);
+
+		IsProcessRequested = true;
+	}
+}
+/**
+ * Print TIMx interrupt cause.
+ *
+ * @param name Peripheral name. Ex) "TIM1"
+ * @param htim Peripheral handle.
+ */
+static void
+print_tim_intr_cause(const char *name, TIM_HandleTypeDef *htim)
+{
+	uint32_t tick = HAL_GetTick();
+
+	char flags[8];
+
+	flags[0] = TIM_GET_ITSTATUS(htim, TIM_IT_BREAK) ? 'B' : ' ';
+	flags[1] = TIM_GET_ITSTATUS(htim, TIM_IT_UPDATE) ? 'U' : ' ';
+	flags[2] = TIM_GET_ITSTATUS(htim, TIM_IT_TRIGGER) ? 'T' : ' ';
+	flags[3] = TIM_GET_ITSTATUS(htim, TIM_IT_CC1) ? '1' : ' ';
+	flags[4] = TIM_GET_ITSTATUS(htim, TIM_IT_CC1) ? '2' : ' ';
+	flags[5] = TIM_GET_ITSTATUS(htim, TIM_IT_CC1) ? '3' : ' ';
+	flags[6] = TIM_GET_ITSTATUS(htim, TIM_IT_CC1) ? '4' : ' ';
+	flags[7] = '\0'; // NULL terminate
+
+	dprintf("%lu:%s intr %s\n", tick, name, flags);
+
+	return ;
+}
+
 
 /* USER CODE END 4 */
 

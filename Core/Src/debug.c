@@ -42,4 +42,4 @@ __io_putchar(uint8_t c)
 	return ITM_SendChar(c);
 }
 
-#endif
+#endif // _DEBUG
