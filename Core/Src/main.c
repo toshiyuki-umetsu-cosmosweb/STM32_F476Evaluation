@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "i2c.h"
+#include "rtc.h"
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
@@ -86,6 +87,8 @@ static bool hal_uart_transmit_it_proc(void);
 static bool htu21d_measure_temperature_proc(void);
 static bool htu21d_measure_humidity_proc(void);
 static void send_measure_data_proc(void);
+static void initial_datetime(void);
+static void set_datetime_to_msgbuf(void);
 static void print_tim_intr_cause(const char *name, TIM_HandleTypeDef *htim);
 
 /* USER CODE END PFP */
@@ -132,15 +135,26 @@ int main(void)
   MX_I2C1_Init();
   MX_TIM1_Init();
   MX_TIM2_Init();
+  MX_RTC_Init();
   /* USER CODE BEGIN 2 */
-  htu21d_init();
+    htu21d_init();
+
+    if (__HAL_PWR_GET_FLAG(PWR_FLAG_SB) == RESET) {
+    	// POWER ON RESET.
+    	dprintf("Power on reset.\n");
+    	initial_datetime();
+    } else if (__HAL_PWR_GET_FLAG(PWR_FLAG_SB) != RESET) {
+    	__HAL_PWR_CLEAR_FLAG(PWR_FLAG_SB);
+	    dprintf("Wakeup from standby.\n");
+		HAL_PWR_DisableWakeUpPin(PWR_WAKEUP_PIN5); // Disable wakeup pin.
+    }
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
-    HAL_TIM_Base_Start_IT(&htim1); // Start TIM3.
+    HAL_TIM_Base_Start_IT(&htim1); // Start TIM1.
     HAL_TIM_PWM_Start_IT(&htim1, TIM_CHANNEL_1);
     HAL_TIM_OC_Start_IT(&htim1, TIM_CHANNEL_2);
 
@@ -151,11 +165,19 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+		if (HAL_GPIO_ReadPin(GPIOC, GPIO_PIN_5) == GPIO_PIN_RESET) {
+
+		}
 		if (IsProcessRequested) {
 			execute_process();
 			IsProcessRequested = false;
 		}
 		// Try wait.
+		HAL_SuspendTick();
+		// Enter SLEEP mode.
+		// Wakeup condition : Interrupts or event.
+		HAL_PWR_EnterSLEEPMode(PWR_LOWPOWERREGULATOR_ON, PWR_SLEEPENTRY_WFE);
+		HAL_ResumeTick();
 	}
   /* USER CODE END 3 */
 }
@@ -176,10 +198,16 @@ void SystemClock_Config(void)
     Error_Handler();
   }
 
+  /** Configure LSE Drive Capability
+  */
+  HAL_PWR_EnableBkUpAccess();
+  __HAL_RCC_LSEDRIVE_CONFIG(RCC_LSEDRIVE_LOW);
+
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSE;
+  RCC_OscInitStruct.LSEState = RCC_LSE_ON;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
@@ -244,6 +272,14 @@ execute_process(void)
 				op_msg = "htu21d_measure_humidity";
 			}
 			ProcessNo++;
+			break;
+		case 4L:
+		case 5L:
+		case 6L:
+		case 7L:
+		case 8L:
+			ProcessNo++;
+			op_msg = NULL;
 			break;
 		default:
 			send_measure_data_proc();
@@ -346,11 +382,13 @@ static char MsgBuf[256u];
 static void
 send_measure_data_proc(void)
 {
+	set_datetime_to_msgbuf();
+
 	int16_t temp_n = (int16_t)(Temperature);
 	int16_t temp_d = (int16_t)((Temperature - temp_n) * 100.0f);
 	int16_t humi_n = (int16_t)(Humidity);
 	int16_t humi_d = (int16_t)((Humidity - humi_n) * 100.0f);
-	snprintf(MsgBuf, sizeof(MsgBuf),
+	snprintf(MsgBuf + 20u, sizeof(MsgBuf) - 20u,
 			"Temp=%d.%d Humi=%d.%d\n", temp_n, temp_d, humi_n, humi_d);
 
 	size_t len = strlen(MsgBuf);
@@ -360,6 +398,72 @@ send_measure_data_proc(void)
 	    }
 	}
 }
+/**
+ * Initialize date and time.
+ */
+static void
+initial_datetime(void)
+{
+	RTC_TimeTypeDef time;
+	RTC_DateTypeDef date;
+
+	memset(&time, 0u, sizeof(time));
+	time.TimeFormat = RTC_FORMAT_BIN;
+	time.Hours = 13u;
+	time.Minutes = 00u;
+	time.Seconds = 00u;
+	HAL_RTC_SetTime(&hrtc, &time, RTC_FORMAT_BIN);
+
+	memset(&date, 0u, sizeof(date));
+	date.Year = 20u;
+	date.Month = 03u;
+	date.Date = 16u;
+	HAL_RTC_SetDate(&hrtc, &date, RTC_FORMAT_BIN);
+
+	return ;
+}
+
+/**
+ * Set date and time to MsgBuf.
+ *
+ * @note
+ * This function write into MsgBuf[0]-MsgBuf[20].
+ */
+static void
+set_datetime_to_msgbuf(void)
+{
+	RTC_TimeTypeDef time;
+	RTC_DateTypeDef date;
+	HAL_RTC_GetTime(&hrtc, &time, RTC_FORMAT_BCD);
+	HAL_RTC_GetDate(&hrtc, &date, RTC_FORMAT_BCD);
+
+	MsgBuf[0] = '2';
+	MsgBuf[1] = '0';
+	MsgBuf[2] = '0' + ((date.Year >> 4u) & 0x0Fu);
+	MsgBuf[3] = '0' + ((date.Year >> 0u) & 0x0Fu);
+	MsgBuf[4] = '/';
+	MsgBuf[5] = '0' + ((date.Month >> 4u) & 0xFu);
+	MsgBuf[6] = '0' + ((date.Month >> 0u) & 0xFu);
+	MsgBuf[7] = '/';
+	MsgBuf[8] = '0' + ((date.Date >> 4u) & 0xFu);
+	MsgBuf[9] = '0' + ((date.Date >> 0u) & 0xFu);
+	MsgBuf[10] = ' ';
+	MsgBuf[11] = '0' + ((time.Hours >> 4u) & 0xFu);
+	MsgBuf[12] = '0' + ((time.Hours >> 0u) & 0xFu);
+	MsgBuf[13] = ':';
+	MsgBuf[14] = '0' + ((time.Minutes >> 4u) & 0xFu);
+	MsgBuf[15] = '0' + ((time.Minutes >> 0u) & 0xFu);
+	MsgBuf[16] = ':';
+	MsgBuf[17] = '0' + ((time.Seconds >> 4u) & 0xFu);
+	MsgBuf[18] = '0' + ((time.Seconds >> 0u) & 0xFu);
+	MsgBuf[19] = ' ';
+	MsgBuf[20] = '\0';
+
+	return ;
+}
+
+
+
 
 /**
  * Timer callback handler.
