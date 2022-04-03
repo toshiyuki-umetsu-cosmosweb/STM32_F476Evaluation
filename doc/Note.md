@@ -91,7 +91,11 @@ HAL_GPIO_EXTICallbackを実装する。
 「Clock Source」に「Internal Clock」を設定し、プリスケーラ、カウンターペイロードの設定をする。
 例えばAPBxが80MHzなら、プリスケーラを(8000-1)にすれば8000/80MHz[sec]つまり、0.1[msec]毎にカウントアップする。
 それから「Counter Period」を(5000-1)にすれば、500ミリ毎にアップデートイベントが発生する。
-「auto-reloadpreload」をEnableにしておくと、手動でカウンタをリセットしなくても、アップデートイベント時にリセットしてくれる。
+「auto-reloadpreload」をEnableにしておくと、カウンターオーバーフロー時にCounter Periodが切り替わる。
+Disableにすると、ARRを書き替えた時にCounter Period（に相当するタイムアウトレジスタ）が切り替わる。
+周期を動的に変更する必要がある場合には、事故を防ぐためにも「auto-reloadpreload」はEnableにしておく方が良い。
+常に一定の周期でしか使わないなら、Disableにしても問題ない。
+(https://stackoverflow.com/questions/66363735/stm32-timer-auto-reload-preload)
 通知はNVICで「update/global」割り込みを有効に設定し、「void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)」を実装する。
 また、HAL_TIM_Base_Start_IT(&htimX)を呼び出し、割り込み通知を許可する。
 
