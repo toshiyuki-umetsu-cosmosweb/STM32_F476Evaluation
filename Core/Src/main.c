@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "dac.h"
 #include "i2c.h"
 #include "iwdg.h"
 #include "rtc.h"
@@ -96,7 +97,8 @@ static void print_tim_intr_cause(const char *name, TIM_HandleTypeDef *htim);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+static uint16_t DACValue;
+static bool IsDACCountUp;
 
 /* USER CODE END 0 */
 
@@ -138,6 +140,8 @@ int main(void)
   MX_TIM2_Init();
   MX_RTC_Init();
   MX_IWDG_Init();
+  MX_DAC1_Init();
+  MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
     htu21d_init();
 
@@ -162,6 +166,12 @@ int main(void)
 
     HAL_TIM_Base_Start_IT(&htim2); // Start TIM2.
     HAL_TIM_PWM_Start_IT(&htim2, TIM_CHANNEL_3);
+
+    DACValue = 0u;
+    IsDACCountUp = true;
+	HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, DACValue);
+	HAL_DAC_Start(&hdac1, DAC_CHANNEL_1);
+	HAL_TIM_Base_Start_IT(&htim6); // Start TIM6.
 
 	while (1) {
     /* USER CODE END WHILE */
@@ -483,11 +493,27 @@ HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 	if (htim == &htim1) {
 		// TIM1 Interrupt.
-		print_tim_intr_cause("TIM1_PeriodElapsed", htim);
-
+		// Prescaler=100usec * ARR=5000-1 -> 500msec.
 		if (TIM_GET_ITSTATUS(htim, TIM_IT_UPDATE)) {
             IsProcessRequested = true;
 		}
+		//__enable_irq();
+		print_tim_intr_cause("TIM1_PeriodElapsed", htim);
+	} else if (htim == &htim6) {
+		// TIM6 Interrupt.
+		// Prescaler=100usec * ARR=1-1 -> 100msec
+		if (IsDACCountUp) {
+			if (DACValue < 0xFFFu) {
+				DACValue++;
+			}
+			IsDACCountUp = (DACValue < 0xFFFu);
+		} else {
+			if (DACValue > 0u) {
+				DACValue--;
+			}
+			IsDACCountUp = (DACValue <= 0u);
+		}
+		HAL_DAC_SetValue(&hdac1, DAC_CHANNEL_1, DAC_ALIGN_12B_R, DACValue);
 	}
 }
 
