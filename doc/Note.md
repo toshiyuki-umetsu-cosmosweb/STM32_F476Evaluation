@@ -40,6 +40,7 @@ Gitなら、.gitignoreに「Backup」と書いた行を追加すればよい。
 割り込み優先順位は、低い値ほど優先される。
 
 
+
 # ドライバに関して
 
 ## 割り込み周り
@@ -54,10 +55,10 @@ BRRは指定したビットに対応するODRのビットを0にセットする�
 BSRRは指定したビットに対応するODRのビットを0または1にセットするレジスタ。
 BSRRは下位ビットが1にするビット、上位ビットが0にするビットに割り当てられているみたい。
 基本的にMCU依存なので、可能な限りHAL層ドライバのインタフェースを使った方がいい。
+HAL_GPIO_WritePin(GPIOA, GPIO_PIN_7, GPIO_PIN_SET)のようにする。
 割り込みハンドラを使う場合には、NVICの設定を行った後、
 HAL_GPIO_EXTICallbackを実装する。
 引数にピン番号が入るので、GPIO_PIN_xxと比較することで、対象のピンかどうかを判定できる。
-
 
 ## UART周り
 
@@ -131,12 +132,16 @@ HAL_PWR_EnterSLEEPMode(PWR_LOWPOWERREGULATOR_ON, PWR_SLEEPENTRY_WFI);
 HAL_ResumeTick();
 ```
 
+関数名を見て分かるとおり、Tickは停止する。そのため、Sleep前後で取得したHAL_GetTick()の値を使用して経過時間を測定することはできない。
+
 第2引数は復帰要因っぽい。WFI=Wait For Interrupt, WFE=Wait For Event.
 ざっくり書くと、WFIは割り込みのみ。WFEは割り込みと特定のGPIOピンによる操作（で起こされるウェイクアップイベント）
 SLEEP中もTickを動かしたいなら、HAL_SuspendTickとHAL_ResumeTick()を抜けば良い。但し消費電力も増える。
 
 STANDBY/SHUTDOWNモードはもっと消費電力が下がるが、ペリフェラルも止まるので、長時間停止させる場合に使用する。
 プログラムコードもリセットから開始するっぽい。
+
+
 
 ## RTC
 
@@ -146,4 +151,27 @@ STM32L476RGでは、オンボードのMCUに外付けされた32768Hzの発振�
 あとは、HAL_RTC_GetTime / HAL_RTC_GetDateを使用して日時を取得する。
 RTC_FORMAT_BINを渡すと、通常の10進数表現になり、RTC_FORMAT_BCDを渡すと、BCD表現でのやりとり(13は0x13と表現される）になる。
 
+## IWDG
 
+ペリフェラルのクロックソースはClock Configurationの図にあるとおり、32kHz。
+「IWDG counter clock prescaler」のクロックカウントされるとIEDTのカウンタが1カウントアップし、「IWDG Window Value」に到達するとリセットがかかる。
+32kHzだと、最短で 4x4095/32E3 = 0.5119[sec]になる。最長で 256x4095/32E3 = 32.760[sec]になる。
+設定した周期内に、HAL_IWDG_Refresh(&hiwdg)を呼び出すことでカウンタをリフレッシュする。
+尚、IWDGはスリープに遷移しても停止しないので、低消費電力目的の場合にはWWDGを使うべきらしい。
+ただし、WWDGは非常にクリティカルで扱いにくい。
+
+## WWDG
+
+ペリフェラルのクロックソースはPCLK1らしい(APB1バスに接続されていると書かれている）。
+リセットまでの期間は Tpclk*4096*Prescaler*(WindowValue+1-64)になる。
+Tpclkは1クロックあたりの時間、WDGTBは分周器の値らしい。
+T[5:0]は「WWDG free-runing down counter value」に相当する。
+動作としては次の通り。
+開始時、カウンタは「WWDG free-runing down counter value」の値である。
+これはAPB1クロック/4096/Prescaler毎に1カウント減っていく。
+カウンタが「WWDG Window value」より大きいときにリフレッシュはできない。やろうとするとリセットがかかる。
+リフレッシュできない期間を設けたくないなら、「WWDG Window value」は「WWDG free-runing down counter value」以上の値にすればよい。
+このカウンタが0x41->0x40になったときにEWI割り込みを起こすことができる(オプション)。カウンタが0x40から0x3Fになるとき、リセットが生成される。
+APB1バスクロックが80MHz,プリスケーラ=8,free-runing down counter valueが127だとすると、リセットまでの期間は
+1/80E6*4096*8*(127+1-64)=26.2[msec]になる。
+最長でもこのくらいなので、ポーリング系のI/Oインタフェースをはさんでリフレッシュしようとすると、間に合わない事が多い。
