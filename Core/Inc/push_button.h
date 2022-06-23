@@ -8,6 +8,4 @@
 #ifndef SRC_BUSH_BUTTON_H_
 #define SRC_BUSH_BUTTON_H_
 
-
-
 #endif /* SRC_BUSH_BUTTON_H_ */

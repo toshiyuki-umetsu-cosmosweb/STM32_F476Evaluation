@@ -22,12 +22,11 @@
  *     ソースコードに記載した、printfメッセージがSWV ITM Data Consoleに表示される。
  */
 
-
 #include "debug.h"
 
 #ifdef _DEBUG
-#include <stdio.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #include "main.h"
 
@@ -36,10 +35,6 @@
  *
  * @return 結果
  */
-int
-__io_putchar(uint8_t c)
-{
-	return ITM_SendChar(c);
-}
+int __io_putchar(uint8_t c) { return ITM_SendChar(c); }
 
 #endif // _DEBUG

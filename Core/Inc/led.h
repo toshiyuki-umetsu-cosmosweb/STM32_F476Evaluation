@@ -11,9 +11,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-enum led_no {
-    USER_LED_1
-};
+enum led_no { USER_LED_1 };
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,6 +23,5 @@ void led_toggle(enum led_no no);
 #ifdef __cplusplus
 }
 #endif
-
 
 #endif /* INC_LED_H_ */

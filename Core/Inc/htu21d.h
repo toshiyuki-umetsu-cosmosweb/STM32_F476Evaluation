@@ -23,5 +23,4 @@ bool htu21d_measure_humidity(float *humidifier);
 }
 #endif
 
-
 #endif /* SRC_MHTU21D_H_ */
